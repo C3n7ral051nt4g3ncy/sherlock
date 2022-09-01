@@ -153,10 +153,7 @@ checksymbols = ["_", "-", "."]
 
 def MultipleUsernames(username):
     '''replace the parameter with with symbols and return a list of usernames'''
-    allUsernames = []
-    for i in checksymbols:
-        allUsernames.append(username.replace("{?}", i))
-    return allUsernames
+    return [username.replace("{?}", i) for i in checksymbols]
 
 
 def sherlock(username, site_data, query_notify,
@@ -208,11 +205,7 @@ def sherlock(username, site_data, query_notify,
 
     # Limit number of workers to 20.
     # This is probably vastly overkill.
-    if len(site_data) >= 20:
-        max_workers = 20
-    else:
-        max_workers = len(site_data)
-
+    max_workers = min(len(site_data), 20)
     # Create multi-threaded session for all requests.
     session = SherlockFuturesSession(max_workers=max_workers,
                                      session=underlying_session)
@@ -236,7 +229,7 @@ def sherlock(username, site_data, query_notify,
 
         if "headers" in net_info:
             # Override/append any extra headers required by a given site.
-            headers.update(net_info["headers"])
+            headers |= net_info["headers"]
 
         # URL of user on site (if it exists)
         url = interpolate_string(net_info["url"], username)
@@ -296,16 +289,7 @@ def sherlock(username, site_data, query_notify,
                     # not respond properly unless we request the whole page.
                     request = session.get
 
-            if net_info["errorType"] == "response_url":
-                # Site forwards request to a different URL if username not
-                # found.  Disallow the redirect so we can capture the
-                # http status from the original URL request.
-                allow_redirects = False
-            else:
-                # Allow whatever redirect that the site wants to do.
-                # The final result of the request will be what is available.
-                allow_redirects = True
-
+            allow_redirects = net_info["errorType"] != "response_url"
             # This future starts running the request in a new thread, doesn't block the main thread
             if proxy is not None:
                 proxies = {"http": proxy, "https": proxy}
@@ -399,16 +383,12 @@ def sherlock(username, site_data, query_notify,
                     if error in r.text:
                         error_flag = False
                         break
-            if error_flag:
-                query_status = QueryStatus.CLAIMED
-            else:
-                query_status = QueryStatus.AVAILABLE
+            query_status = QueryStatus.CLAIMED if error_flag else QueryStatus.AVAILABLE
         elif error_type == "status_code":
             # Checks if the Status Code is equal to the optional "errorCode" given in 'data.json'
             if error_code == r.status_code:
                 query_status = QueryStatus.AVAILABLE
-            # Checks if the status code of the response is 2XX
-            elif not r.status_code >= 300 or r.status_code < 200:
+            elif r.status_code < 300 or r.status_code < 200:
                 query_status = QueryStatus.CLAIMED
             else:
                 query_status = QueryStatus.AVAILABLE
